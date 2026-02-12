@@ -1,10 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from moviebox_api.interactive import MovieBox
 import os
 
 app = Flask(__name__)
-# This tells Render to let ANYONE (especially Lovable) see the data
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Real Engine
+engine = MovieBox(host=os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com"))
 
 @app.route('/')
 def home():
@@ -13,13 +16,23 @@ def home():
 @app.route('/movies')
 def search():
     query = request.args.get('q', 'Avengers')
-    # Returning a list of movies directly so Lovable doesn't get confused
-    return jsonify([
-        {"title": "Avengers: Endgame", "id": "1", "poster": "https://via.placeholder.com"},
-        {"title": "Avengers: Infinity War", "id": "2", "poster": "https://via.placeholder.com"}
-    ])
+    try:
+        # Search real movies
+        results = engine.search_movie(query)
+        # Transform the data so Lovable understands it
+        formatted_results = []
+        for movie in results:
+            formatted_results.append({
+                "id": movie.get('id'),
+                "title": movie.get('title'),
+                "poster": movie.get('poster'),
+                "url": movie.get('url') # For the player
+            })
+        return jsonify(formatted_results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-  
+    
