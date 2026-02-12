@@ -13,29 +13,37 @@ except ImportError:
         MovieBox = None
 
 app = Flask(__name__)
+# Universal CORS to ensure Lovable never gets blocked
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- 2. ENGINE INITIALIZATION WITH FAILOVER ---
+# --- 2. ENGINE INITIALIZATION WITH AUTO-RETRY ---
 engine = None
-primary_host = os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com")
-backup_host = "moviebox.ke"
+# We try these three in order. One of them WILL work.
+mirrors = [
+    os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com"),
+    "moviebox.ph",
+    "moviebox.ke"
+]
+
+active_mirror = "none"
 
 if MovieBox:
-    try:
-        # Try Primary
-        engine = MovieBox(host=primary_host)
-        print(f"Engine loaded on {primary_host}")
-    except Exception as e:
-        print(f"Primary failed: {e}. Trying backup...")
+    for host in mirrors:
         try:
-            # Try Backup
-            engine = MovieBox(host=backup_host)
-            print(f"Engine loaded on {backup_host}")
-        except Exception as e2:
-            print(f"All mirrors failed: {e2}")
-            engine = None
+            print(f"Attempting to load engine on: {host}")
+            temp_engine = MovieBox(host=host)
+            # We do a 'test' search to make sure the mirror is actually alive
+            test_search = temp_engine.search_movie("Avengers")
+            if test_search is not None:
+                engine = temp_engine
+                active_mirror = host
+                print(f"SUCCESS: Engine live on {host}")
+                break
+        except Exception as e:
+            print(f"FAILED on {host}: {e}")
+            continue
 else:
-    print("MovieBox library not found in environment.")
+    print("CRITICAL: moviebox-api library not installed.")
 
 # --- 3. ROUTES ---
 @app.route('/')
@@ -44,35 +52,38 @@ def home():
         "status": "active",
         "message": "Movie Engine is Live!",
         "engine_loaded": engine is not None,
-        "mirror": primary_host if engine else "none"
+        "mirror": active_mirror,
+        "users_limit": 19
     }
 
 @app.route('/movies')
 def search():
     query = request.args.get('q', '')
     if not engine:
-        return jsonify({"error": "Engine not loaded. Check mirror hosts."}), 500
+        return jsonify({"error": "Engine not loaded. All mirrors failed."}), 500
     
     if not query:
-        return jsonify([])
+        # If no search, return a default list so the app isn't empty
+        query = "Avengers"
 
     try:
-        # Search real movies
         results = engine.search_movie(query)
         
-        # Format for Lovable
+        # Format for Lovable's UI
         formatted = []
         for movie in results:
             formatted.append({
-                "id": movie.get('id', ''),
+                "id": movie.get('id', '0'),
                 "title": movie.get('title', 'Unknown'),
                 "poster": movie.get('poster', ''),
-                "url": movie.get('url', '')
+                "url": movie.get('url', '') # Direct stream link
             })
         return jsonify(formatted)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
+    # Render default port is 10000
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
+                                     
