@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from moviebox_api.interactive import MovieBox
+from moviebox_api import MovieBox
 import os
 
 app = Flask(__name__)
