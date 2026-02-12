@@ -1,6 +1,4 @@
-moviebox-api
+moviebox-api==1.3.4
 flask
 flask-cors
 gunicorn
-requests
-cryptography
