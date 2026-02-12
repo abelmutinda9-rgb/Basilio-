@@ -4,21 +4,20 @@ from moviebox_api.interactive import MovieBox
 import os
 
 app = Flask(__name__)
-CORS(app) # This allows Lovable to talk to Render
+CORS(app)
 
-# Start the MovieBox engine
-# Using the host you set in Render variables
+# Connect to the MovieBox engine
 engine = MovieBox(host=os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com"))
 
 @app.route('/')
 def home():
-    return {"status": "active", "message": "Movie Engine is Ready"}
+    return "Movie Engine is Live!"
 
+# THIS IS THE PART LOVABLE IS LOOKING FOR:
 @app.route('/movies')
-def search_movies():
-    query = request.args.get('q', 'Avengers') # Default to Avengers if no search
+def search():
+    query = request.args.get('q', 'Avengers')
     try:
-        # This calls the Simatwa engine to find movies
         results = engine.search_movie(query)
         return jsonify(results)
     except Exception as e:
@@ -27,4 +26,4 @@ def search_movies():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-  
+    
