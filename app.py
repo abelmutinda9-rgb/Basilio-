@@ -3,66 +3,76 @@ from flask_cors import CORS
 import os
 import sys
 
-# --- SMART IMPORT LOGIC ---
-# This ensures the app finds the MovieBox engine regardless of the version
+# --- 1. SMART IMPORT ---
 try:
     from moviebox_api.interactive import MovieBox
 except ImportError:
     try:
-        from moviebox_api.main import MovieBox
+        from moviebox_api import MovieBox
     except ImportError:
-        try:
-            import moviebox_api
-            MovieBox = moviebox_api.MovieBox
-        except Exception as e:
-            print(f"Critical Import Error: {e}")
-            MovieBox = None
+        MovieBox = None
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Initialize Engine
-# Using the host you set in Render (defaulting to h5.aoneroom.com)
-try:
-    engine = MovieBox(host=os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com")) if MovieBox else None
-except Exception as e:
-    print(f"Engine Init Error: {e}")
-    engine = None
+# --- 2. ENGINE INITIALIZATION WITH FAILOVER ---
+engine = None
+primary_host = os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com")
+backup_host = "moviebox.ke"
 
+if MovieBox:
+    try:
+        # Try Primary
+        engine = MovieBox(host=primary_host)
+        print(f"Engine loaded on {primary_host}")
+    except Exception as e:
+        print(f"Primary failed: {e}. Trying backup...")
+        try:
+            # Try Backup
+            engine = MovieBox(host=backup_host)
+            print(f"Engine loaded on {backup_host}")
+        except Exception as e2:
+            print(f"All mirrors failed: {e2}")
+            engine = None
+else:
+    print("MovieBox library not found in environment.")
+
+# --- 3. ROUTES ---
 @app.route('/')
 def home():
     return {
         "status": "active",
         "message": "Movie Engine is Live!",
-        "engine_loaded": engine is not None
+        "engine_loaded": engine is not None,
+        "mirror": primary_host if engine else "none"
     }
 
 @app.route('/movies')
 def search():
-    query = request.args.get('q', 'Avengers')
-    
+    query = request.args.get('q', '')
     if not engine:
-        return jsonify({"error": "Movie engine not initialized. Check logs."}), 500
+        return jsonify({"error": "Engine not loaded. Check mirror hosts."}), 500
+    
+    if not query:
+        return jsonify([])
 
     try:
-        # Search real movies using the Simatwa engine
+        # Search real movies
         results = engine.search_movie(query)
         
-        # Format the data for Lovable
-        formatted_results = []
+        # Format for Lovable
+        formatted = []
         for movie in results:
-            formatted_results.append({
+            formatted.append({
                 "id": movie.get('id', ''),
-                "title": movie.get('title', 'Unknown Title'),
+                "title": movie.get('title', 'Unknown'),
                 "poster": movie.get('poster', ''),
-                "url": movie.get('url', '') # This is for the inbuilt player
+                "url": movie.get('url', '')
             })
-        return jsonify(formatted_results)
+        return jsonify(formatted)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    # Render uses the PORT environment variable
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-    
