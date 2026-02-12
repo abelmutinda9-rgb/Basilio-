@@ -1,0 +1,5 @@
+moviebox-api
+flask
+flask-cors
+gunicorn
+requests
