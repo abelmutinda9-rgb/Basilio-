@@ -1,89 +1,79 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import sys
+import time
 
-# --- 1. SMART IMPORT ---
+# Try to import the library
 try:
     from moviebox_api.interactive import MovieBox
 except ImportError:
     try:
         from moviebox_api import MovieBox
-    except ImportError:
+    except:
         MovieBox = None
 
 app = Flask(__name__)
-# Universal CORS to ensure Lovable never gets blocked
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-# --- 2. ENGINE INITIALIZATION WITH AUTO-RETRY ---
+# Global variable for the engine
 engine = None
-# We try these three in order. One of them WILL work.
-mirrors = [
-    os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com"),
-    "moviebox.ph",
-    "moviebox.ke"
-]
 
-active_mirror = "none"
+def get_engine():
+    global engine
+    if engine is None and MovieBox is not None:
+        # List of mirrors to try
+        mirrors = [os.getenv("MOVIEBOX_API_HOST", "h5.aoneroom.com"), "moviebox.ph", "moviebox.ke"]
+        for host in mirrors:
+            try:
+                print(f"Trying to wake up mirror: {host}")
+                engine = MovieBox(host=host)
+                # Quick test
+                engine.search_movie("Avengers")
+                print(f"Success! Connected to {host}")
+                return engine
+            except:
+                engine = None
+                continue
+    return engine
 
-if MovieBox:
-    for host in mirrors:
-        try:
-            print(f"Attempting to load engine on: {host}")
-            temp_engine = MovieBox(host=host)
-            # We do a 'test' search to make sure the mirror is actually alive
-            test_search = temp_engine.search_movie("Avengers")
-            if test_search is not None:
-                engine = temp_engine
-                active_mirror = host
-                print(f"SUCCESS: Engine live on {host}")
-                break
-        except Exception as e:
-            print(f"FAILED on {host}: {e}")
-            continue
-else:
-    print("CRITICAL: moviebox-api library not installed.")
-
-# --- 3. ROUTES ---
 @app.route('/')
 def home():
+    e = get_engine()
     return {
         "status": "active",
-        "message": "Movie Engine is Live!",
-        "engine_loaded": engine is not None,
-        "mirror": active_mirror,
-        "users_limit": 19
+        "engine_ready": e is not None,
+        "users": 19,
+        "message": "Real MovieBox Engine is Live!" if e else "Engine Warming Up..."
     }
 
 @app.route('/movies')
 def search():
     query = request.args.get('q', '')
-    if not engine:
-        return jsonify({"error": "Engine not loaded. All mirrors failed."}), 500
-    
     if not query:
-        # If no search, return a default list so the app isn't empty
-        query = "Avengers"
+        return jsonify([])
+
+    e = get_engine()
+    if not e:
+        return jsonify({"error": "Mirrors are busy. Try again in 10 seconds."}), 503
 
     try:
-        results = engine.search_movie(query)
+        # REAL MovieBox Search
+        results = e.search_movie(query)
         
-        # Format for Lovable's UI
+        # Format the data for Lovable
         formatted = []
-        for movie in results:
+        for m in results:
             formatted.append({
-                "id": movie.get('id', '0'),
-                "title": movie.get('title', 'Unknown'),
-                "poster": movie.get('poster', ''),
-                "url": movie.get('url', '') # Direct stream link
+                "id": m.get('id', '0'),
+                "title": m.get('title', 'Unknown'),
+                "poster": m.get('poster', ''),
+                "url": m.get('url', '') # This is the REAL streaming link
             })
         return jsonify(formatted)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as err:
+        return jsonify({"error": str(err)}), 500
 
 if __name__ == "__main__":
-    # Render default port is 10000
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-                                     
+    
